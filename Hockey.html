@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Хоккей Три Кота! (Air Hockey)</title>
+    <style>
+        /* Весь CSS теперь прямо здесь */
+        body { 
+            margin: 0; background: #1a1a2e; color: white; 
+            font-family: 'Arial', sans-serif; display: flex; 
+            justify-content: center; align-items: center; height: 100vh; overflow: hidden;
+        }
+        #game-wrapper { position: relative; border: 8px solid #0f3460; border-radius: 20px; box-shadow: 0 0 30px rgba(0, 255, 255, 0.2); }
+        canvas { background: radial-gradient(circle, #16213e 0%, #0f3460 100%); display: block; cursor: none; }
+        
+        .ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; 
+            align-items: center; background: rgba(0, 0, 0, 0.85); z-index: 10;
+        }
+        .hidden { display: none !important; }
+        h1 { color: #ff9900; text-shadow: 2px 2px #000; margin-bottom: 10px; }
+        .stats { margin-bottom: 20px; font-size: 18px; color: #00d2ff; }
+        .char-select { display: flex; gap: 10px; margin-bottom: 20px; }
+        .btn { 
+            padding: 10px 15px; border: 2px solid #555; background: #333; 
+            color: white; cursor: pointer; border-radius: 10px; transition: 0.2s;
+        }
+        .btn.active { border-color: #ff9900; background: #444; box-shadow: 0 0 10px #ff9900; }
+        .start-btn {
+            padding: 15px 50px; font-size: 24px; background: #ff9900;
+            color: white; border: none; border-radius: 10px; cursor: pointer;
+        }
+        .score-board {
+            position: absolute; top: 10px; width: 100%;
+            display: flex; justify-content: space-around;
+            font-size: 24px; font-weight: bold; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="menu" class="ui-layer">
+        <h1>ХОККЕЙ ТРИ КОТА</h1>
+        <div class="stats">Твой Elo Рейтинг: <span id="elo-val">1000</span></div>
+
+        <p>Выбери персонажа:</p>
+        <div class="char-select">
+            <button class="btn active" onclick="setChar('Карамелька', '#ff9900', this)">Карамелька</button>
+            <button class="btn" onclick="setChar('Компот', '#4caf50', this)">Компот</button>
+            <button class="btn" onclick="setChar('Гоня', '#2196f3', this)">Гоня</button>
+        </div>
+
+        <p>Сложность бота:</p>
+        <div class="char-select">
+            <button class="btn active" onclick="setDiff(0.06, this)">Легко</button>
+            <button class="btn" onclick="setDiff(0.12, this)">Норм</button>
+            <button class="btn" onclick="setDiff(0.25, this)">Хард</button>
+        </div>
+
+        <button class="start-btn" onclick="startGame()">ИГРАТЬ</button>
+    </div>
+    
+    <div class="score-board">
+        <span><span id="pName">Карамелька</span>: <span id="pScore">0</span></span>
+        <span>Бот: <span id="bScore">0</span></span>
+    </div>
+
+    <canvas id="airHockey" width="800" height="500"></canvas>
+</div>
+
+<script>
+    const canvas = document.getElementById('airHockey');
+    const ctx = canvas.getContext('2d');
+    
+    let elo = parseInt(localStorage.getItem('hockey_elo')) || 1000;
+    let botLevel = 0.06;
+    let playerChar = { name: 'Карамелька', color: '#ff9900' };
+    let gameRunning = false;
+
+    const puck = { x: 400, y: 250, vx: 0, vy: 0, r: 15, f: 0.99 };
+    const player = { x: 100, y: 250, r: 35, score: 0 };
+    const bot = { x: 700, y: 250, r: 35, score: 0 };
+
+    document.getElementById('elo-val').textContent = elo;
+
+    function setChar(name, color, btn) {
+        playerChar = { name, color };
+        document.getElementById('pName').textContent = name;
+        resetSelection(btn);
+    }
+
+    function setDiff(val, btn) {
+        botLevel = val;
+        resetSelection(btn);
+    }
+
+    function resetSelection(btn) {
+        btn.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+
+    function startGame() {
+        document.getElementById('menu').classList.add('hidden');
+        player.score = 0; bot.score = 0;
+        updateUI();
+        resetPuck();
+        gameRunning = true;
+        animate();
+    }
+
+    function resetPuck() {
+        puck.x = 400; puck.y = 250;
+        puck.vx = (Math.random() > 0.5 ? 6 : -6);
+        puck.vy = (Math.random() - 0.5) * 10;
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!gameRunning) return;
+        const r = canvas.getBoundingClientRect();
+        player.x = Math.min(e.clientX - r.left, 390); // Не даем зайти на чужую половину
+        player.y = e.clientY - r.top;
+    });
+
+    function updateElo(win) {
+        const change = win ? 25 : -15;
+        elo += change;
+        if (elo < 0) elo = 0;
+        localStorage.setItem('hockey_elo', elo);
+        document.getElementById('elo-val').textContent = elo;
+    }
+
+    function animate() {
+        if (!gameRunning) return;
+
+        puck.x += puck.vx; puck.y += puck.vy;
+        puck.vx *= puck.f; puck.vy *= puck.f;
+
+        if (puck.y < puck.r || puck.y > canvas.height - puck.r) puck.vy *= -1;
+
+        // Логика бота
+        bot.y += (puck.y - bot.y) * botLevel;
+        bot.x += (720 - bot.x) * 0.05;
+
+        // Столкновения
+        [player, bot].forEach(obj => {
+            let dx = puck.x - obj.x, dy = puck.y - obj.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < obj.r + puck.r) {
+                let angle = Math.atan2(dy, dx);
+                let speed = Math.sqrt(puck.vx**2 + puck.vy**2) + 3;
+                puck.vx = Math.cos(angle) * speed;
+                puck.vy = Math.sin(angle) * speed;
+            }
+        });
+
+        if (puck.x < 0 || puck.x > canvas.width) {
+            if (puck.x < 0) bot.score++; else player.score++;
+            updateUI();
+            if (player.score >= 7 || bot.score >= 7) {
+                gameRunning = false;
+                const win = player.score >= 7;
+                updateElo(win);
+                alert(win ? "Победа! Твой рейтинг вырос." : "Проигрыш! Рейтинг упал.");
+                document.getElementById('menu').classList.remove('hidden');
+                return;
+            }
+            resetPuck();
+        }
+
+        draw();
+        requestAnimationFrame(animate);
+    }
+
+    function updateUI() {
+        document.getElementById('pScore').textContent = player.score;
+        document.getElementById('bScore').textContent = bot.score;
+    }
+
+    function draw() {
+        ctx.clearRect(0,0,800,500);
+        ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(400,0); ctx.lineTo(400,500); ctx.stroke();
+        
+        // Шайба
+        ctx.fillStyle = "#fff"; ctx.shadowBlur = 10; ctx.shadowColor = "#fff";
+        ctx.beginPath(); ctx.arc(puck.x, puck.y, puck.r, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Игрок и Бот
+        ctx.fillStyle = playerChar.color;
+        ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#ff4444";
+        ctx.beginPath(); ctx.arc(bot.x, bot.y, bot.r, 0, Math.PI*2); ctx.fill();
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Zewir Hockey | Ultimate Edition</title>
+    <style>
+        :root {
+            --bg: #0d1117; --side: #161b22; --card: #21262d;
+            --border: #30363d; --accent: #58a6ff; --orange: #f9826c; --text: #c9d1d9;
+        }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Sidebar Left */
+        .sidebar-left { width: 240px; background: var(--side); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; }
+        .profile { background: var(--card); border: 1px solid var(--border); padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 15px; }
+        .elo-num { font-size: 28px; font-weight: bold; color: var(--orange); }
+        
+        /* Search Button */
+        .search-btn { 
+            background: #2d333b; color: #8b949e; border: 1px solid var(--border); 
+            padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600;
+            transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .search-btn:hover { background: #3c444d; color: var(--text); }
+        .loading-dots { display: none; }
+
+        /* Leaderboard Right */
+        .sidebar-right { width: 240px; background: var(--side); border-left: 1px solid var(--border); padding: 20px; }
+        .leader-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #21262d; font-size: 14px; }
+        .leader-item.me { color: var(--orange); font-weight: bold; }
+
+        /* Main Game Area */
+        .main { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #game-container { position: relative; border: 4px solid var(--border); border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        canvas { display: block; background: #000; cursor: none; }
+
+        /* UI Elements */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(13,17,23,0.9); z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 16px; }
+        .hidden { display: none !important; }
+        .btn-game { background: #21262d; border: 1px solid var(--border); color: var(--text); padding: 10px 18px; border-radius: 10px; cursor: pointer; margin: 5px; transition: 0.2s; }
+        .btn-game:hover { background: #30363d; border-color: var(--accent); }
+        .btn-game.active { background: rgba(88, 166, 255, 0.1); border-color: var(--accent); color: var(--accent); }
+        .start-now { background: #238636; color: white; border: none; padding: 16px 50px; font-size: 20px; border-radius: 10px; cursor: pointer; font-weight: bold; margin-top: 20px; box-shadow: 0 4px 15px rgba(35, 134, 54, 0.3); }
+        .start-now:hover { background: #2ea043; transform: translateY(-2px); }
+        
+        .score-bar { font-size: 36px; font-weight: 800; margin-bottom: 15px; letter-spacing: 8px; color: var(--text); }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar-left">
+        <div class="profile">
+            <h3 id="p-name" style="margin: 0; font-size: 14px; color: var(--accent);">КАРАМЕЛЬКА</h3>
+            <div class="elo-num" id="elo-val">1000</div>
+            <div style="font-size: 11px; color: #8b949e;">ВАШ ELO РЕЙТИНГ</div>
+        </div>
+        
+        <button class="search-btn" id="search-btn" onclick="toggleSearch()">
+            <span id="search-text">ПОИСК ИГРОКОВ</span>
+            <span class="loading-dots" id="dots">...</span>
+        </button>
+
+        <div style="margin-top: 30px; font-size: 13px;">
+            <p style="color: #8b949e;">ДРУЗЬЯ</p>
+            <div style="display: flex; justify-content: space-between;"><span>🤖 Компот</span> <span style="color: #3fb950">●</span></div>
+            <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span>🤖 Гоня</span> <span style="color: #3fb950">●</span></div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="score-bar" id="score">0 : 0</div>
+        <div id="game-container">
+            <div id="overlay" class="overlay">
+                <h1 style="margin-bottom: 5px;">AIR HOCKEY</h1>
+                <p style="color: #8b949e; margin-bottom: 25px;">Выберите персонажа</p>
+                <div>
+                    <button class="btn-game active" onclick="setH('КАРАМЕЛЬКА','#f9826c',this)">Карамелька</button>
+                    <button class="btn-game" onclick="setH('КОМПОТ','#4caf50',this)">Компот</button>
+                    <button class="btn-game" onclick="setH('ГОНЯ','#2196f3',this)">Гоня</button>
+                </div>
+                <button class="start-now" onclick="start()">ИГРАТЬ</button>
+            </div>
+            <canvas id="air" width="800" height="500"></canvas>
+        </div>
+    </div>
+
+    <div class="sidebar-right">
+        <h4 style="margin: 0 0 15px 0; color: var(--accent);">ТАБЛИЦА ЛИДЕРОВ</h4>
+        <div id="leaders">
+            </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('air'), ctx = canvas.getContext('2d');
+    let elo = parseInt(localStorage.getItem('z_elo')) || 1000;
+    let hero = { n: 'КАРАМЕЛЬКА', c: '#f9826c' }, running = false;
+    
+    const puck = { x: 400, y: 250, vx: 0, vy: 0, r: 15, f: 0.994 };
+    const p1 = { x: 100, y: 250, r: 35, s: 0, lx: 100, ly: 250 };
+    const p2 = { x: 700, y: 250, r: 35, s: 0, speed: 4.8, acc: 0.12 };
+
+    function updateLeaders() {
+        const leaders = [
+            {n: 'Компот (Бот)', e: 1250},
+            {n: 'Гоня (Бот)', e: 1100},
+            {n: hero.n, e: elo, me: true},
+            {n: 'Лапочка', e: 950}
+        ].sort((a,b) => b.e - a.e);
+        
+        document.getElementById('leaders').innerHTML = leaders.map(l => `
+            <div class="leader-item ${l.me ? 'me' : ''}">
+                <span>${l.n}</span>
+                <span>${l.e}</span>
+            </div>
+        `).join('');
+        document.getElementById('elo-val').innerText = elo;
+    }
+    updateLeaders();
+
+    function setH(n, c, b) {
+        hero = { n, c }; document.getElementById('p-name').innerText = n;
+        b.parentElement.querySelectorAll('.btn-game').forEach(x => x.classList.remove('active'));
+        b.classList.add('active'); updateLeaders();
+    }
+
+    function toggleSearch() {
+        const btn = document.getElementById('search-btn');
+        const dots = document.getElementById('dots');
+        const text = document.getElementById('search-text');
+        
+        btn.style.opacity = '0.5';
+        dots.style.display = 'inline';
+        text.innerText = 'ПОИСК...';
+        
+        setTimeout(() => {
+            btn.style.opacity = '1';
+            dots.style.display = 'none';
+            text.innerText = 'ИГРОКИ НЕ НАЙДЕНЫ';
+            setTimeout(() => text.innerText = 'ПОИСК ИГРОКОВ', 2000);
+        }, 3000);
+    }
+
+    function start() {
+        document.getElementById('overlay').classList.add('hidden');
+        p1.s = 0; p2.s = 0; updateScore(); reset();
+        running = true; loop();
+    }
+
+    function reset() {
+        puck.x = 400; puck.y = 250;
+        puck.vx = (Math.random() > 0.5 ? 7 : -7);
+        puck.vy = (Math.random() - 0.5) * 12;
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!running) return;
+        const r = canvas.getBoundingClientRect();
+        p1.lx = p1.x; p1.ly = p1.y;
+        p1.x = Math.min(e.clientX - r.left, 390);
+        p1.y = e.clientY - r.top;
+    });
+
+    function collide(o, b) {
+        let dx = b.x - o.x, dy = b.y - o.y;
+        let d = Math.sqrt(dx*dx + dy*dy);
+        if (d < o.r + b.r) {
+            let a = Math.atan2(dy, dx);
+            let s = Math.sqrt(b.vx**2 + b.vy**2);
+            if (o === p1) {
+                let ms = Math.sqrt((p1.x - p1.lx)**2 + (p1.y - p1.ly)**2);
+                s = Math.max(s, 5) + ms * 0.5;
+            } else { s += 2; }
+            s = Math.min(s, 16);
+            b.vx = Math.cos(a) * s; b.vy = Math.sin(a) * s;
+            b.x = o.x + Math.cos(a) * (o.r + b.r + 2);
+            b.y = o.y + Math.sin(a) * (o.r + b.r + 2);
+        }
+    }
+
+    function loop() {
+        if (!running) return;
+        puck.x += puck.vx; puck.y += puck.vy;
+        puck.vx *= puck.f; puck.vy *= puck.f;
+
+        if (puck.y < puck.r || puck.y > 500 - puck.r) { puck.vy *= -1; puck.y = (puck.y < puck.r) ? puck.r : 500 - puck.r; }
+
+        // Smart Bot
+        let tx = 720, ty = 250;
+        if (puck.x > 350) { tx = puck.x + 20; ty = puck.y; }
+        p2.x += Math.max(Math.min((tx - p2.x) * p2.acc, p2.speed), -p2.speed);
+        p2.y += Math.max(Math.min((ty - p2.y) * p2.acc, p2.speed), -p2.speed);
+        if (p2.x < 420) p2.x = 420;
+
+        collide(p1, puck); collide(p2, puck);
+
+        if (puck.x < -20 || puck.x > 820) {
+            puck.x < 0 ? p2.s++ : p1.s++;
+            updateScore();
+            if (p1.s >= 5 || p2.s >= 5) {
+                running = false;
+                let win = p1.s >= 5;
+                elo += win ? 25 : -15;
+                localStorage.setItem('z_elo', elo);
+                updateLeaders();
+                alert(win ? "ПОБЕДА!" : "ПРОИГРЫШ");
+                document.getElementById('overlay').classList.remove('hidden');
+                return;
+            }
+            reset();
+        }
+
+        ctx.clearRect(0,0,800,500);
+        // Шлейф шайбы
+        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.beginPath(); ctx.arc(puck.x - puck.vx, puck.y - puck.vy, puck.r, 0, 7); ctx.fill();
+
+        ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(400,0); ctx.lineTo(400,500); ctx.stroke();
+        
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(puck.x, puck.y, puck.r, 0, 7); ctx.fill();
+        ctx.fillStyle = hero.c; ctx.beginPath(); ctx.arc(p1.x, p1.y, p1.r, 0, 7); ctx.fill();
+        ctx.fillStyle = "#ff4444"; ctx.beginPath(); ctx.arc(p2.x, p2.y, p2.r, 0, 7); ctx.fill();
+        
+        requestAnimationFrame(loop);
+    }
+
+    function updateScore() { document.getElementById('score').innerText = `${p1.s} : ${p2.s}`; }
+</script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Хоккей Три Кота | Спокойный Бот</title>
+    <style>
+        :root { --bg: #0d1117; --sidebar: #161b22; --border: #30363d; --orange: #ff9900; --text: #c9d1d9; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        .sidebar { width: 250px; background: var(--sidebar); border-right: 1px solid var(--border); padding: 20px; }
+        .profile { background: #21262d; border: 1px solid var(--border); padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .elo { font-size: 24px; font-weight: bold; color: var(--orange); }
+        .main { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        #canvas-box { position: relative; border: 3px solid var(--border); border-radius: 15px; background: #000; }
+        canvas { display: block; cursor: none; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(13,17,23,0.95); z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .hidden { display: none !important; }
+        .btn { background: #21262d; border: 1px solid var(--border); color: var(--text); padding: 10px 20px; border-radius: 6px; cursor: pointer; margin: 5px; }
+        .btn.active { border-color: var(--orange); color: var(--orange); }
+        .start-btn { background: #238636; color: white; border: none; padding: 15px 40px; font-size: 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 20px; }
+        .score { font-size: 40px; font-weight: bold; margin-bottom: 10px; color: var(--orange); letter-spacing: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="profile">
+        <h3 id="p-name">Карамелька</h3>
+        <div class="elo" id="elo-display">1000</div>
+        <div style="font-size: 11px; color: #8b949e;">Ваш рейтинг</div>
+    </div>
+    <div style="font-size: 13px; color: #8b949e;">
+        <p>🤖 Бот Компот <span style="color: #3fb950">●</span></p>
+        <p>🤖 Бот Гоня <span style="color: #3fb950">●</span></p>
+    </div>
+</div>
+
+<div class="main">
+    <div class="score" id="score-text">0 : 0</div>
+    <div id="canvas-box">
+        <div id="menu" class="overlay">
+            <h1 style="color: var(--orange)">AIR HOCKEY</h1>
+            <p>Выбери героя:</p>
+            <div>
+                <button class="btn active" onclick="setH('Карамелька','#ff9900',this)">Карамелька</button>
+                <button class="btn" onclick="setH('Компот','#4caf50',this)">Компот</button>
+                <button class="btn" onclick="setH('Гоня','#2196f3',this)">Гоня</button>
+            </div>
+            <button class="start-btn" onclick="init()">ИГРАТЬ</button>
+        </div>
+        <canvas id="game" width="800" height="500"></canvas>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+    let elo = parseInt(localStorage.getItem('z_elo')) || 1000;
+    let hero = { n: 'Карамелька', c: '#ff9900' }, running = false;
+    
+    // ПАРАМЕТРЫ ФИЗИКИ
+    const puck = { x: 400, y: 250, vx: 0, vy: 0, r: 15, f: 0.992 }; // Чуть больше трения для контроля
+    const p1 = { x: 100, y: 250, r: 35, s: 0, lastX: 100, lastY: 250 };
+    const p2 = { x: 700, y: 250, r: 35, s: 0, maxSpeed: 4.5, accel: 0.1 }; // БОТ ЗАМЕДЛЕН
+
+    document.getElementById('elo-display').innerText = elo;
+
+    function setH(n, c, b) {
+        hero = { n, c }; document.getElementById('p-name').innerText = n;
+        b.parentElement.querySelectorAll('.btn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+    }
+
+    function init() {
+        document.getElementById('menu').classList.add('hidden');
+        p1.s = 0; p2.s = 0; updateScore(); resetPuck();
+        running = true; render();
+    }
+
+    function resetPuck() {
+        puck.x = 400; puck.y = 250;
+        puck.vx = (Math.random() > 0.5 ? 6 : -6);
+        puck.vy = (Math.random() - 0.5) * 8;
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!running) return;
+        const r = canvas.getBoundingClientRect();
+        p1.lastX = p1.x; p1.lastY = p1.y;
+        p1.x = Math.min(e.clientX - r.left, 390);
+        p1.y = e.clientY - r.top;
+    });
+
+    function collide(obj, ball) {
+        let dx = ball.x - obj.x, dy = ball.y - obj.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < obj.r + ball.r) {
+            let angle = Math.atan2(dy, dx);
+            let speed = Math.sqrt(ball.vx**2 + ball.vy**2);
+            if (obj === p1) {
+                let mouseSpeed = Math.sqrt((p1.x - p1.lastX)**2 + (p1.y - p1.lastY)**2);
+                speed = Math.max(speed, 4) + mouseSpeed * 0.4;
+            } else { speed += 1.5; }
+            speed = Math.min(speed, 14); // Макс. скорость шайбы
+            ball.vx = Math.cos(angle) * speed;
+            ball.vy = Math.sin(angle) * speed;
+            ball.x = obj.x + Math.cos(angle) * (obj.r + ball.r + 2);
+            ball.y = obj.y + Math.sin(angle) * (obj.r + ball.r + 2);
+        }
+    }
+
+    function render() {
+        if (!running) return;
+        
+        puck.x += puck.vx; puck.y += puck.vy;
+        puck.vx *= puck.f; puck.vy *= puck.f;
+
+        if (puck.y < puck.r || puck.y > 500 - puck.r) { 
+            puck.vy *= -1; 
+            puck.y = (puck.y < puck.r) ? puck.r : 500 - puck.r; 
+        }
+
+        // ПЛАВНЫЙ БОТ
+        let targetX = 720, targetY = 250;
+        if (puck.x > 400) { targetX = puck.x + 15; targetY = puck.y; }
+        
+        let dx = targetX - p2.x, dy = targetY - p2.y;
+        p2.x += Math.max(Math.min(dx * p2.accel, p2.maxSpeed), -p2.maxSpeed);
+        p2.y += Math.max(Math.min(dy * p2.accel, p2.maxSpeed), -p2.maxSpeed);
+        if (p2.x < 420) p2.x = 420;
+
+        collide(p1, puck); collide(p2, puck);
+
+        if (puck.x < -10 || puck.x > 810) {
+            puck.x < 0 ? p2.s++ : p1.s++;
+            updateScore();
+            if (p1.s >= 5 || p2.s >= 5) {
+                running = false;
+                let win = p1.s >= 5;
+                elo += win ? 25 : -15;
+                localStorage.setItem('z_elo', elo);
+                document.getElementById('elo-display').innerText = elo;
+                alert(win ? "ПОБЕДА!" : "ПРОИГРЫШ");
+                document.getElementById('menu').classList.remove('hidden');
+                return;
+            }
+            resetPuck();
+        }
+
+        ctx.clearRect(0,0,800,500);
+        ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(400,0); ctx.lineTo(400,500); ctx.stroke();
+        
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(puck.x, puck.y, puck.r, 0, 7); ctx.fill();
+        ctx.fillStyle = hero.c; ctx.beginPath(); ctx.arc(p1.x, p1.y, p1.r, 0, 7); ctx.fill();
+        ctx.fillStyle = "#ff4444"; ctx.beginPath(); ctx.arc(p2.x, p2.y, p2.r, 0, 7); ctx.fill();
+        
+        requestAnimationFrame(render);
+    }
+
+    function updateScore() { document.getElementById('score-text').innerText = `${p1.s} : ${p2.s}`; }
+</script>
+</body>
+</html>
